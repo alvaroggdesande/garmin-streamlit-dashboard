@@ -4,8 +4,14 @@ from utils import garmin_utils, data_processing, plotting_utils
 import pandas as pd
 import plotly.express as px
 
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 st.set_page_config(layout="wide", page_title="Running Performance")
-st.title("🏃 Running Performance Analysis")
+st.title("Running Performance Analysis")
 
 if not st.session_state.get('logged_in', False):
     st.warning("Please log in first using the sidebar on the main page.")

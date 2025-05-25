@@ -4,8 +4,14 @@ from utils import garmin_utils, data_processing, plotting_utils
 import pandas as pd
 import plotly.express as px
 
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 st.set_page_config(layout="wide", page_title="Health Overview") # Ensure this is set in each page if not using a central app.py for config
-st.title("🩺 Health Overview")
+st.title("Health Overview")
 
 if not st.session_state.get('logged_in', False):
     st.warning("Please log in first using the sidebar on the main page.")
