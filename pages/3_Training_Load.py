@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import date, timedelta
 from utils import garmin_utils, data_processing, plotting_utils
 import pandas as pd
+import plotly.express as px
 
 st.set_page_config(layout="wide", page_title="Training Load")
 st.title("🏋️ Training Load Analysis")

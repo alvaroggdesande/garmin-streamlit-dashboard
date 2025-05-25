@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+import logging
 
 def safe_float(value, default=np.nan):
     try:
@@ -144,6 +145,9 @@ def calculate_hr_zone_distribution(processed_activities_df, period='W'):
     return zone_distribution.reset_index()
 
 def process_hrv_df(hrv_df):
+
+    logger.info(f"Input to process_hrv_df. Shape: {hrv_df.shape}, Columns: {hrv_df.columns.tolist()}")
+
     if hrv_df.empty:
         return pd.DataFrame()
     

@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import date, timedelta
 from utils import garmin_utils, data_processing, plotting_utils
 import pandas as pd
+import plotly.express as px
 
 st.set_page_config(layout="wide", page_title="Health Overview") # Ensure this is set in each page if not using a central app.py for config
 st.title("🩺 Health Overview")

@@ -147,6 +147,8 @@ def get_hrv_data(client, username, start_date, end_date, force_refresh=False):
             logger.warning(f"Could not fetch HRV for {current_date.isoformat()}: {e}")
         current_date += timedelta(days=1)
 
+    logger.info(f"Raw HRV data fetched before DataFrame creation: {all_hrv_data}")
+
     if all_hrv_data:
         df = pd.DataFrame(all_hrv_data)
         df.to_parquet(cache_path, index=False)
@@ -181,6 +183,9 @@ def get_sleep_data(client, username, start_date, end_date, force_refresh=False):
     # And get_daily_sleep_data(start_date.isoformat(), end_date.isoformat()) for a range
     try:
         raw_sleep_data = client.get_daily_sleep_data(start_date.isoformat(), end_date.isoformat())
+
+        logger.info(f"Raw sleep data fetched: {raw_sleep_data}")
+
         if raw_sleep_data:
             # The structure can be complex, often a list of sleep entries
             # Each entry might have 'dailySleepDTO' and 'sleepLevels'
@@ -198,6 +203,9 @@ def get_sleep_data(client, username, start_date, end_date, force_refresh=False):
 
 
     if all_sleep_data:
+
+        logger.info(f"Processed sleep list before DataFrame: {all_sleep_data}")
+
         df = pd.DataFrame(all_sleep_data)
         df.to_parquet(cache_path, index=False)
         logger.info(f"Saved sleep data for {username} to cache: {cache_path}")
