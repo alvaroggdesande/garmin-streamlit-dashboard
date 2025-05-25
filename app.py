@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import date, timedelta
 from utils import garmin_utils # Assuming garmin_utils.py is in utils folder
 
+
 st.set_page_config(layout="wide", page_title="Garmin Performance Dashboard")
 
 st.sidebar.title("Garmin Dashboard")
