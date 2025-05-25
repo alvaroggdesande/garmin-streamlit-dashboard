@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv_garmin/
+.venv/ # Common alternative name for venv
+
+# IDE / Editor specific
+.vscode/
+.idea/
+*.DS_Store
+
+# Data files (IMPORTANT - DO NOT COMMIT ACTUAL USER DATA OR CREDENTIALS)
+data/*
+!data/.gitkeep # If you want to keep the 'data' folder structure but not its contents
+# If you decide to store user_credentials.json (even encrypted) locally, ensure it's in .gitignore
+# user_credentials.json
+
+# Streamlit secrets file (if you use it for deployment)
+.streamlit/secrets.toml
+
+# Any other sensitive files
+# example_credentials.env # If you have a template for env vars

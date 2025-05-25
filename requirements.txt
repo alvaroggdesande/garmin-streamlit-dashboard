@@ -1,0 +1,5 @@
+streamlit==1.33.0
+pandas==2.2.2
+plotly==5.20.0
+garminconnect==0.1.71
+pyarrow==16.0.0
