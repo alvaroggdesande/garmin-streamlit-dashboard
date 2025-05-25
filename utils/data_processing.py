@@ -1,7 +1,12 @@
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+
 import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def safe_float(value, default=np.nan):
     try:
