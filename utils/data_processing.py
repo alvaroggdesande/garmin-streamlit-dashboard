@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+import math
 
 import logging
 
@@ -292,3 +293,134 @@ def calculate_custom_training_load(processed_activities_df, method='trimp_exp'):
         return daily_load
     
     return load_df # Should have been returned as daily_load
+
+
+def process_daily_summary_for_plotting(df_raw):
+    if df_raw.empty:
+        return pd.DataFrame()
+    df = df_raw.copy()
+
+    # Ensure 'calendarDate' is datetime
+    df['calendarDate'] = pd.to_datetime(df['calendarDate']).dt.date # Keep as date object for grouping/plotting
+
+    # Convert seconds to minutes/hours
+    for col_s in ['highlyActiveSeconds', 'activeSeconds', 'sedentarySeconds', 'sleepingSeconds',
+                  'stressDuration', 'restStressDuration', 'activityStressDuration',
+                  'lowStressDuration', 'mediumStressDuration', 'highStressDuration']:
+        if col_s in df.columns:
+            df[col_s.replace('Seconds', 'Minutes')] = df[col_s].fillna(0) / 60
+            if col_s == 'sleepingSeconds': # Also make hours for sleep
+                 df[col_s.replace('Seconds', 'Hours')] = df[col_s].fillna(0) / 3600
+    
+    # Convert distance
+    if 'totalDistanceMeters' in df.columns:
+        df['totalDistanceKm'] = df['totalDistanceMeters'].fillna(0) / 1000
+
+    # Handle potential non-numeric explicitly for metrics (e.g. Body Battery if it's fetched as string 'N/A')
+    for col_num in ['restingHeartRate', 'averageStressLevel', 'totalSteps', 'bodyBatteryMostRecentValue',
+                    'activeKilocalories', 'totalDistanceKm', 'moderateIntensityMinutes',
+                    'vigorousIntensityMinutes', 'intensityMinutesGoal', 'floorsAscended', 'dailyStepGoal',
+                    'bodyBatteryHighestValue', 'bodyBatteryLowestValue', 'bodyBatteryAtWakeTime']:
+        if col_num in df.columns:
+            df[col_num] = pd.to_numeric(df[col_num], errors='coerce') # Coerce errors to NaN
+
+    return df
+
+def format_time_minutes_seconds(decimal_minutes):
+    """Converts decimal minutes to a string 'Xm Ys'."""
+    if pd.isna(decimal_minutes) or not isinstance(decimal_minutes, (int, float)):
+        return "N/A"
+    if decimal_minutes < 0:
+        return "N/A" # Or handle negative if it makes sense in some context
+
+    minutes = int(decimal_minutes)
+    seconds = int(round((decimal_minutes - minutes) * 60))
+    
+    if minutes == 0 and seconds == 0:
+        return "0s" # Or handle as you prefer
+    
+    output = ""
+    if minutes > 0:
+        output += f"{minutes}m "
+    output += f"{seconds}s"
+    return output.strip()
+
+def format_time_seconds_to_ms(total_seconds):
+    """Converts total seconds to a string 'Xm Ys'."""
+    if pd.isna(total_seconds) or not isinstance(total_seconds, (int, float)):
+        return "N/A"
+    if total_seconds < 0:
+        return "N/A"
+
+    minutes = int(total_seconds // 60)
+    seconds = int(round(total_seconds % 60))
+
+    if minutes == 0 and seconds == 0:
+        return "0s"
+
+    output = ""
+    if minutes > 0:
+        output += f"{minutes}m "
+    output += f"{seconds}s"
+    return output.strip()
+
+
+def process_general_activities_df(activities_df_raw): # Renamed for clarity
+    if activities_df_raw.empty:
+        return pd.DataFrame()
+    
+    df = activities_df_raw.copy()
+    # Extract activityType_key
+    if 'activityType' in df.columns:
+        df['activityType_key'] = df['activityType'].apply(
+            lambda x: x.get('typeKey') if isinstance(x, dict) else x if isinstance(x, str) else None
+        )
+    # Date and Time processing
+    df['startTimeGMT_dt'] = pd.to_datetime(df['startTimeGMT'], errors='coerce')
+    df['date'] = pd.to_datetime(df['startTimeLocal'], errors='coerce').dt.date
+
+    # Duration
+    df['duration_seconds'] = pd.to_numeric(df['duration'], errors='coerce')
+    df['duration_minutes'] = df['duration_seconds'] / 60
+
+    # Distance
+    df['distance_meters'] = pd.to_numeric(df['distance'], errors='coerce')
+    df['distance_km'] = df['distance_meters'] / 1000
+
+    # Pace (min/km)
+    mask_pace = (df['distance_km'] > 0) & (df['duration_minutes'] > 0)
+    df['pace_min_per_km'] = np.nan
+    df.loc[mask_pace, 'pace_min_per_km'] = df.loc[mask_pace, 'duration_minutes'] / df.loc[mask_pace, 'distance_km']
+
+    # HR
+    df['avgHR'] = pd.to_numeric(df['averageHR'], errors='coerce')
+    df['maxHR'] = pd.to_numeric(df['maxHR'], errors='coerce')
+    df['calories'] = pd.to_numeric(df['calories'], errors='coerce') # Added calories
+
+    # Cadence
+    if 'averageRunningCadenceInStepsPerMinute' in df.columns:
+        # Cadence is often steps for ONE foot. Multiply by 2 for total steps per minute.
+        df['avgCadence'] = pd.to_numeric(df['averageRunningCadenceInStepsPerMinute'], errors='coerce') * 2
+    if 'maxRunningCadenceInStepsPerMinute' in df.columns:
+        df['maxCadence'] = pd.to_numeric(df['maxRunningCadenceInStepsPerMinute'], errors='coerce') * 2
+
+    # VO2Max
+    if 'vO2MaxValue' in df.columns:
+        df['vo2MaxValue_activity'] = pd.to_numeric(df['vO2MaxValue'], errors='coerce')
+    
+    # TE
+    df['aerobicTE'] = pd.to_numeric(df['aerobicTrainingEffect'], errors='coerce')
+    df['anaerobicTE'] = pd.to_numeric(df['anaerobicTrainingEffect'], errors='coerce')
+
+    # HR Zones (using direct column names from your sample: hrTimeInZone_1, etc.)
+    for i in range(1, 6):
+        col_name = f'hrTimeInZone_{i}'
+        if col_name in df.columns:
+            df[f'time_in_zone{i}_seconds'] = pd.to_numeric(df[col_name], errors='coerce').fillna(0)
+            df[f'time_in_zone{i}_minutes'] = df[f'time_in_zone{i}_seconds'] / 60
+        else:
+            df[f'time_in_zone{i}_seconds'] = 0.0
+            df[f'time_in_zone{i}_minutes'] = 0.0
+            
+    df = df.sort_values(by='date').reset_index(drop=True)
+    return df
