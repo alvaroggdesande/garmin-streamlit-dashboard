@@ -39,7 +39,7 @@ if not st.session_state.get('logged_in', False):
 client = st.session_state.garmin_client
 username = st.session_state.current_user
 start_date_session = st.session_state.get('date_range_start', date.today() - timedelta(days=30))
-end_date_session = st.session_state.get('date_range_end', date.today())
+end_date_session = st.session_state.get('date_range_end', date.today() + timedelta(days=1))
 force_refresh_session = st.session_state.get('force_refresh', False)
 
 # Cached data loading function for this page
