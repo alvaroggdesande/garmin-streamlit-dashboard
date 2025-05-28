@@ -247,6 +247,58 @@ if not all_activities_df.empty and 'activityType_key' in all_activities_df.colum
                 st.info("Not enough HR Zone data to display a trend over time.")
         st.markdown("---")
 
+        # ----- SECTION  "Pace per Zone Trend" ------
+        st.subheader("Pace Improvement Trends by Dominant Heart Rate Zone")
+        st.caption("Tracks average pace for runs where your average HR fell predominantly within a specific zone.")
+
+        # --- User Input for HR Zones (Crucial for accuracy!) ---
+        st.sidebar.subheader("Your HR Zone Definitions (BPM)")
+        # These are examples, you should get these from user or their Garmin settings if possible
+        # For now, let user input them for their profile.
+        z1_max = st.sidebar.number_input("Zone 1 Max BPM", value=120, min_value=80, max_value=220)
+        z2_min = st.sidebar.number_input("Zone 2 Min BPM", value=z1_max + 1, min_value=80, max_value=220)
+        z2_max = st.sidebar.number_input("Zone 2 Max BPM", value=145, min_value=z2_min, max_value=220) # Example
+        z3_min = st.sidebar.number_input("Zone 3 Min BPM", value=z2_max + 1, min_value=80, max_value=220)
+        z3_max = st.sidebar.number_input("Zone 3 Max BPM", value=160, min_value=z3_min, max_value=220) # Example
+        z4_min = st.sidebar.number_input("Zone 4 Min BPM", value=z3_max + 1, min_value=80, max_value=220)
+        z4_max = st.sidebar.number_input("Zone 4 Max BPM", value=175, min_value=z4_min, max_value=220) # Example
+        z5_min = st.sidebar.number_input("Zone 5 Min BPM", value=z4_max + 1, min_value=80, max_value=220)
+        # Zone 5 Max is usually user's Max HR
+
+        user_hr_zone_definitions = {
+            "Zone 1": (0, z1_max), # Less relevant for pace trends typically
+            "Zone 2 (Easy)": (z2_min, z2_max),
+            "Zone 3 (Moderate/Tempo)": (z3_min, z3_max),
+            "Zone 4 (Threshold/Hard)": (z4_min, z4_max),
+            "Zone 5 (Max Effort)": (z5_min, 220) # Max effort runs are often not steady pace
+        }
+        # Update your existing identify_easy_runs to use these user-defined Zone 2 bounds for consistency
+        # easy_runs_df = identify_easy_runs_by_avg_hr(running_df, user_hr_zone_definitions["Zone 2 (Easy)"][0], user_hr_zone_definitions["Zone 2 (Easy)"][1])
+        # The Aerobic Efficiency plot should then use this easy_runs_df.
+
+        if not running_df.empty:
+            pace_per_zone_data = calculate_pace_per_zone_trend(running_df, user_hr_zone_definitions)
+
+            if not pace_per_zone_data.empty:
+                fig_pace_zone_trend = px.line(
+                    pace_per_zone_data,
+                    x='date',
+                    y='pace_min_per_km',
+                    color='primary_zone_by_avg_hr', # One line per zone
+                    title="Average Pace Trend by Dominant HR Zone (Weekly Avg)",
+                    labels={'date': "Week", 'pace_min_per_km': "Average Pace (min/km)", 
+                            'primary_zone_by_avg_hr': "Dominant HR Zone"},
+                    markers=True
+                )
+                fig_pace_zone_trend.update_yaxes(autorange="reversed") # Faster pace is lower
+                fig_pace_zone_trend.update_layout(hovermode="x unified")
+                st.plotly_chart(fig_pace_zone_trend, use_container_width=True)
+            else:
+                st.info("Not enough data to plot pace trends by HR zone. Ensure runs have HR data and HR zones are defined.")
+        else:
+            st.info("No running data available to calculate pace per zone trends.")
+        st.markdown("---")
+
 
 
         # --- 2. Aerobic Efficiency (Pace for Easy Runs) ---

@@ -424,3 +424,50 @@ def process_general_activities_df(activities_df_raw): # Renamed for clarity
             
     df = df.sort_values(by='date').reset_index(drop=True)
     return df
+
+def calculate_pace_per_zone_trend(running_df, hr_zone_definitions, min_duration_for_classification_minutes=10):
+    """
+    Calculates average pace for runs primarily in each HR zone.
+    hr_zone_definitions: dict like {'Zone 2': (min_bpm, max_bpm), 'Zone 3': ...}
+    """
+    if running_df.empty or 'avgHR' not in running_df.columns or \
+       'pace_min_per_km' not in running_df.columns or 'duration_minutes' not in running_df.columns:
+        return pd.DataFrame()
+
+    # Filter out very short runs that are hard to classify by avgHR
+    df = running_df[running_df['duration_minutes'] >= min_duration_for_classification_minutes].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    def get_primary_zone(avg_hr, zones_def):
+        for zone_name, (min_bpm, max_bpm) in zones_def.items():
+            if min_bpm <= avg_hr <= max_bpm:
+                return zone_name
+        return None # Or "Undefined"
+
+    df['primary_zone_by_avg_hr'] = df['avgHR'].apply(lambda hr: get_primary_zone(hr, hr_zone_definitions))
+    
+    # Filter out runs that couldn't be classified or have no pace
+    classified_runs = df.dropna(subset=['primary_zone_by_avg_hr', 'pace_min_per_km', 'date'])
+    if classified_runs.empty:
+        return pd.DataFrame()
+
+    # Ensure date is datetime for resampling
+    classified_runs['date'] = pd.to_datetime(classified_runs['date'])
+
+    # Calculate average pace per zone over time (e.g., weekly average)
+    # This groups by week and primary_zone, then calculates mean pace.
+    # To plot trends, we want one line per zone.
+    # We can pivot or plot iteratively.
+
+    # For plotting, it's often easier to have one trace per zone.
+    # Let's prepare data for that. We might average pace weekly/monthly per zone.
+    
+    # Example: Weekly average pace for each zone
+    # This creates a multi-index (date, primary_zone_by_avg_hr)
+    pace_trends = classified_runs.set_index('date').groupby([
+        pd.Grouper(freq='W-MON', label='left', closed='left'), 
+        'primary_zone_by_avg_hr'
+    ])['pace_min_per_km'].mean().reset_index()
+    
+    return pace_trends
