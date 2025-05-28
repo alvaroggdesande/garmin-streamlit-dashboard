@@ -266,11 +266,11 @@ if not all_activities_df.empty and 'activityType_key' in all_activities_df.colum
         # Zone 5 Max is usually user's Max HR
 
         user_hr_zone_definitions = {
-            "Zone 1": (0, z1_max), # Less relevant for pace trends typically
+            #"Zone 1": (0, z1_max), # Less relevant for pace trends typically
             "Zone 2 (Easy)": (z2_min, z2_max),
             "Zone 3 (Moderate/Tempo)": (z3_min, z3_max),
             "Zone 4 (Threshold/Hard)": (z4_min, z4_max),
-            "Zone 5 (Max Effort)": (z5_min, 220) # Max effort runs are often not steady pace
+            #"Zone 5 (Max Effort)": (z5_min, 220) # Max effort runs are often not steady pace
         }
         # Update your existing identify_easy_runs to use these user-defined Zone 2 bounds for consistency
         # easy_runs_df = identify_easy_runs_by_avg_hr(running_df, user_hr_zone_definitions["Zone 2 (Easy)"][0], user_hr_zone_definitions["Zone 2 (Easy)"][1])
