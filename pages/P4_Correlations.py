@@ -112,3 +112,24 @@ elif not row["significant"]:
 else:
     ci = "" if pd.isna(row["ci_low"]) else f", 95% CI [{row['ci_low']:.2f}, {row['ci_high']:.2f}]"
     st.success(f"r = {row['r']:.2f} (n={int(row['n'])}, p = {row['p']:.3f}{ci}) — significant at α=0.05.")
+
+st.markdown("---")
+st.subheader("Correlation heatmap (lag 0, significant cells only)")
+import numpy as np  # local import; keeps the section self-contained
+
+heat_cols = st.multiselect("Metrics", numeric_cols,
+                           default=numeric_cols[: min(6, len(numeric_cols))])
+if len(heat_cols) >= 2:
+    mat = pd.DataFrame(np.nan, index=heat_cols, columns=heat_cols)
+    for i in heat_cols:
+        for j in heat_cols:
+            s = analysis_stats.corr_with_significance(udf[i], udf[j], method=method)
+            # blank non-significant off-diagonal cells
+            if i == j:
+                mat.loc[i, j] = 1.0
+            elif not s["too_few"] and pd.notna(s["p"]) and s["p"] < analysis_stats.DEFAULT_ALPHA:
+                mat.loc[i, j] = s["r"]
+    heat = px.imshow(mat, text_auto=".2f", zmin=-1, zmax=1,
+                     color_continuous_scale="RdBu", aspect="auto")
+    st.plotly_chart(heat, use_container_width=True)
+    st.caption("Blank cells = not significant at α=0.05 or too few points.")
