@@ -74,9 +74,12 @@ line = px.line(scored, x="date", y="readiness", markers=True,
 line.add_hline(y=0, line_dash="dot", line_color="grey")
 st.plotly_chart(line, use_container_width=True)
 with st.expander("Show individual readiness components"):
-    comp_long = scored.melt(id_vars="date", value_vars=comp_cols,
-                            var_name="component", value_name="z")
-    st.plotly_chart(px.line(comp_long, x="date", y="z", color="component"), use_container_width=True)
+    if comp_cols:
+        comp_long = scored.melt(id_vars="date", value_vars=comp_cols,
+                                var_name="component", value_name="z")
+        st.plotly_chart(px.line(comp_long, x="date", y="z", color="component"), use_container_width=True)
+    else:
+        st.info("No individual components available in this range.")
 
 perf_options = [c for c in ["aerobic_efficiency", "mean_pace_min_per_km", "total_aerobic_te"]
                 if c in scored.columns and scored[c].notna().sum() >= 2]
@@ -99,10 +102,12 @@ if len(pair) >= 2:
         ci = "" if pd.isna(stat["ci_low"]) else f", 95% CI [{stat['ci_low']:.2f}, {stat['ci_high']:.2f}]"
         st.success(f"r = {stat['r']:.2f} (n={stat['n']}, p = {stat['p']:.3f}{ci}).")
 
-st.subheader("Readiness & performance over time")
-dual = make_subplots(specs=[[{"secondary_y": True}]])
-dual.add_trace(go.Scatter(x=scored["date"], y=scored["readiness"], name="Readiness"), secondary_y=False)
-dual.add_trace(go.Scatter(x=pair["date"], y=pair[perf], name=perf, mode="markers+lines"), secondary_y=True)
-dual.update_yaxes(title_text="Readiness (z)", secondary_y=False)
-dual.update_yaxes(title_text=perf, secondary_y=True, showgrid=False)
-st.plotly_chart(dual, use_container_width=True)
+    st.subheader("Readiness & performance over time")
+    dual = make_subplots(specs=[[{"secondary_y": True}]])
+    dual.add_trace(go.Scatter(x=scored["date"], y=scored["readiness"], name="Readiness"), secondary_y=False)
+    dual.add_trace(go.Scatter(x=pair["date"], y=pair[perf], name=perf, mode="markers+lines"), secondary_y=True)
+    dual.update_yaxes(title_text="Readiness (z)", secondary_y=False)
+    dual.update_yaxes(title_text=perf, secondary_y=True, showgrid=False)
+    st.plotly_chart(dual, use_container_width=True)
+else:
+    st.info("Fewer than 2 paired readiness/performance days — scatter and time series not shown.")
