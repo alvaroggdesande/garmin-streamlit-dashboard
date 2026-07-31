@@ -1,261 +1,134 @@
-# pages/4_Correlations.py
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import date, timedelta
-import numpy as np
-
-# Assuming utils are in a folder named 'utils' in the parent directory of 'pages'
+# pages/P4_Correlations.py — Lagged Correlation Explorer
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from datetime import date, timedelta
 
-from utils import garmin_utils # data_processing is used via the local function here
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-st.set_page_config(layout="wide", page_title="Metric Correlations")
-st.title("Explore Metric Correlations")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils import garmin_utils, data_processing, analysis_stats
 
-# --- Define process_daily_summary_for_plotting (same as before) ---
-def process_daily_summary_for_plotting(df_raw):
+st.set_page_config(layout="wide", page_title="Lagged Correlations")
+st.title("Lagged Correlation Explorer")
+st.caption(
+    "Exploratory, not confirmatory. Correlation is not causation, and scanning many "
+    "metric/lag pairs inflates false positives — treat highlighted lags as hypotheses."
+)
+
+
+def _process_daily(df_raw):
     if df_raw.empty:
         return pd.DataFrame()
     df = df_raw.copy()
-    df['calendarDate'] = pd.to_datetime(df['calendarDate']).dt.date
-    time_cols_seconds = [
-        'highlyActiveSeconds', 'activeSeconds', 'sedentarySeconds', 'sleepingSeconds',
-        'stressDuration', 'restStressDuration', 'activityStressDuration',
-        'uncategorizedStressDuration', 'totalStressDuration',
-        'lowStressMinutes', 'mediumStressMinutes', 'highStressMinutes', # Already minutes in your sample
-        'measurableAwakeDuration', 'measurableAsleepDuration'
-    ]
-    for col_s in time_cols_seconds:
-        if col_s in df.columns:
-            if col_s.endswith('Seconds'): # Only process if it's actually seconds
-                 df[col_s.replace('Seconds', 'Minutes')] = pd.to_numeric(df[col_s], errors='coerce').fillna(0) / 60
-                 if col_s == 'sleepingSeconds':
-                     df[col_s.replace('Seconds', 'Hours')] = pd.to_numeric(df[col_s], errors='coerce').fillna(0) / 3600
-            # If already minutes (like low/medium/highStressMinutes), ensure numeric
-            elif col_s.endswith('Minutes'):
-                 df[col_s] = pd.to_numeric(df[col_s], errors='coerce').fillna(0)
+    df["calendarDate"] = pd.to_datetime(df["calendarDate"]).dt.date
+    if "sleepingSeconds" in df.columns:
+        df["sleepingHours"] = pd.to_numeric(df["sleepingSeconds"], errors="coerce") / 3600
+    for col in ["restingHeartRate", "averageStressLevel", "totalSteps",
+                "bodyBatteryAtWakeTime", "activeKilocalories",
+                "moderateIntensityMinutes", "vigorousIntensityMinutes",
+                "maxStressLevel", "lastSevenDaysAvgRestingHeartRate"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.sort_values("calendarDate").reset_index(drop=True)
 
-    if 'totalDistanceMeters' in df.columns:
-        df['totalDistanceKm'] = pd.to_numeric(df['totalDistanceMeters'], errors='coerce').fillna(0) / 1000
-    numeric_cols_to_coerce = [
-        'totalKilocalories', 'activeKilocalories', 'bmrKilocalories', 'totalSteps',
-        'wellnessDistanceMeters', 'moderateIntensityMinutes', 'vigorousIntensityMinutes',
-        'floorsAscended', 'floorsDescended', 'minHeartRate', 'maxHeartRate',
-        'restingHeartRate', 'lastSevenDaysAvgRestingHeartRate', 'averageStressLevel',
-        'maxStressLevel', 'bodyBatteryChargedValue', 'bodyBatteryDrainedValue',
-        'bodyBatteryHighestValue', 'bodyBatteryLowestValue', 'bodyBatteryMostRecentValue',
-        'bodyBatteryDuringSleep', 'bodyBatteryAtWakeTime', 'avgWakingRespirationValue',
-        'highestRespirationValue', 'lowestRespirationValue',
-        'intensityMinutesGoal', 'userFloorsAscendedGoal', 'dailyStepGoal'
-    ]
-    for col_num in numeric_cols_to_coerce:
-        if col_num in df.columns:
-            df[col_num] = pd.to_numeric(df[col_num], errors='coerce')
-    df = df.sort_values(by='calendarDate').reset_index(drop=True)
-    return df
-# ------------------------------------------------------------
 
 @st.cache_data(ttl=300)
-def load_correlation_page_data(_client, _username, _start_date, _end_date, _force_refresh):
-    # st.markdown(f"CORR PAGE: Fetching/processing data for {_username} from {_start_date} to {_end_date}, force_refresh={_force_refresh}") # Less verbose
-    raw_daily = garmin_utils.get_daily_summaries(_client, _username, _start_date, _end_date, _force_refresh)
-    processed_daily = process_daily_summary_for_plotting(raw_daily)
-    return processed_daily
+def load_unified(_client, _username, _start, _end, _force):
+    daily = _process_daily(garmin_utils.get_daily_summaries(_client, _username, _start, _end, _force))
+    hrv = data_processing.process_hrv_df(garmin_utils.get_hrv_data(_client, _username, _start, _end, _force))
+    sleep = data_processing.process_sleep_df(garmin_utils.get_sleep_data(_client, _username, _start, _end, _force))
+    acts = data_processing.process_general_activities_df(garmin_utils.get_activities(_client, _username, _start, _end, _force))
+    acts_daily = analysis_stats.aggregate_activities_daily(acts)
+    return analysis_stats.build_unified_daily_frame(daily, hrv, sleep, acts_daily)
 
-if not st.session_state.get('logged_in', False):
+
+if not st.session_state.get("logged_in", False):
     st.warning("Please log in first using the sidebar on the main page.")
     st.stop()
 
 client = st.session_state.garmin_client
 username = st.session_state.current_user
-start_date_session = st.session_state.get('date_range_start', date.today() - timedelta(days=30))
-end_date_session = st.session_state.get('date_range_end', date.today())
-force_refresh_session = st.session_state.get('force_refresh', False)
+start = st.session_state.get("date_range_start", date.today() - timedelta(days=30))
+end = st.session_state.get("date_range_end", date.today())
+force = st.session_state.get("force_refresh", False)
 
-daily_df = pd.DataFrame()
-if client and username:
-    with st.spinner("Loading daily summary data for correlations..."):
-        daily_df = load_correlation_page_data(
-            client, username, start_date_session, end_date_session, force_refresh_session
-        )
+with st.spinner("Loading & unifying daily data..."):
+    udf = load_unified(client, username, start, end, force)
+
+if udf.empty:
+    st.info("No daily data available for the selected range.")
+    st.stop()
+
+numeric_cols = sorted(
+    c for c in udf.columns
+    if c != "date" and pd.api.types.is_numeric_dtype(udf[c])
+    and udf[c].nunique(dropna=True) > 1
+)
+if len(numeric_cols) < 2:
+    st.info("Not enough numeric metrics to correlate.")
+    st.stop()
+
+c1, c2, c3 = st.columns(3)
+driver = c1.selectbox("Driver (X, day t)", numeric_cols,
+                      index=numeric_cols.index("sleepingHours") if "sleepingHours" in numeric_cols else 0)
+outcome = c2.selectbox("Outcome (Y, day t+lag)", numeric_cols,
+                       index=numeric_cols.index("restingHeartRate") if "restingHeartRate" in numeric_cols else min(1, len(numeric_cols) - 1))
+method = c3.radio("Method", ["pearson", "spearman"], horizontal=True)
+max_lag = st.slider("Max lag (days)", 1, 14, 7)
+
+lag_df = analysis_stats.lagged_correlation(udf, driver, outcome, lags=range(0, max_lag + 1), method=method)
+
+st.subheader("Correlation vs lag")
+bar = px.bar(lag_df, x="lag", y="r", color="significant",
+             color_discrete_map={True: "#2c7fb8", False: "#cccccc"},
+             labels={"r": f"{method.title()} r", "lag": "Lag (days)"},
+             title=f"{driver} (t) vs {outcome} (t+lag)")
+bar.add_hline(y=0, line_dash="dot", line_color="grey")
+st.plotly_chart(bar, use_container_width=True)
+
+sig = lag_df[lag_df["significant"]]
+default_lag = int(sig.loc[sig["r"].abs().idxmax(), "lag"]) if not sig.empty else 0
+sel_lag = st.selectbox("Inspect lag", list(lag_df["lag"]), index=list(lag_df["lag"]).index(default_lag))
+
+row = lag_df[lag_df["lag"] == sel_lag].iloc[0]
+scatter_df = pd.DataFrame({
+    "date": udf["date"], driver: udf[driver], outcome: udf[outcome].shift(-sel_lag),
+}).dropna(subset=[driver, outcome])
+
+st.subheader(f"Scatter at lag {sel_lag}")
+if len(scatter_df) >= 2:
+    fig = px.scatter(scatter_df, x=driver, y=outcome, trendline="ols",
+                     hover_data=["date"],
+                     labels={outcome: f"{outcome} (t+{sel_lag})"})
+    st.plotly_chart(fig, use_container_width=True)
+
+if row["too_few"] if "too_few" in row else (row["n"] < analysis_stats.MIN_N):
+    st.warning(f"Too few overlapping points (n={int(row['n'])}) — no reliable estimate.")
+elif not row["significant"]:
+    st.info(f"r = {row['r']:.2f} (n={int(row['n'])}, p = {row['p']:.3f}) — **not significant**, likely noise.")
 else:
-    st.info("Login via the main page to load data.")
+    ci = "" if pd.isna(row["ci_low"]) else f", 95% CI [{row['ci_low']:.2f}, {row['ci_high']:.2f}]"
+    st.success(f"r = {row['r']:.2f} (n={int(row['n'])}, p = {row['p']:.3f}{ci}) — significant at α=0.05.")
 
-# --- Function to generate a single correlation plot ---
-def create_correlation_plot(df, x_col, y_col, title, x_label=None, y_label=None, y_col_is_next_day=False):
-    if df.empty or x_col not in df.columns:
-        st.info(f"Missing data for X-axis: {x_col}")
-        return
-    
-    # Ensure 'calendarDate' exists for hover info.
-    # If your 'date' column is named something else, adjust here or ensure it's renamed to 'calendarDate' earlier.
-    date_col_name = 'calendarDate'
-    if date_col_name not in df.columns:
-        if 'date' in df.columns: # common alternative
-            date_col_name = 'date'
-        else:
-            st.warning(f"Date column ('calendarDate' or 'date') not found in DataFrame for hover data in '{title}'.")
-            # Proceed without date in hover if not found, or you could return.
-            # For now, we'll let it proceed but hover might be less informative.
+st.markdown("---")
+st.subheader("Correlation heatmap (lag 0, significant cells only)")
+import numpy as np  # local import; keeps the section self-contained
 
-    plot_df = df.copy()
-    y_data_col = y_col
-
-    if y_col_is_next_day:
-        if y_col not in df.columns:
-            st.info(f"Missing data for Y-axis (base for next day): {y_col}")
-            return
-        plot_df[y_col + '_next_day'] = plot_df[y_col].shift(-1)
-        y_data_col = y_col + '_next_day'
-        y_label_final = y_label or f"{y_col.replace('_', ' ').title()} (Next Day)"
-    else:
-        if y_col not in df.columns:
-            st.info(f"Missing data for Y-axis: {y_col}")
-            return
-        y_label_final = y_label or y_col.replace('_', ' ').title()
-
-    x_label_final = x_label or x_col.replace('_', ' ').title()
-
-    # Columns needed for the plot, including the date for hover
-    cols_for_plot = [x_col, y_data_col]
-    if date_col_name in plot_df.columns: # Only add if found
-        cols_for_plot.append(date_col_name)
-    
-    correlation_data = plot_df[cols_for_plot].dropna(subset=[x_col, y_data_col]) # Ensure we only drop based on x and y
-
-    if not correlation_data.empty and len(correlation_data) >= 2:
-        hover_data_config = {}
-        if date_col_name in correlation_data.columns:
-            # Format the date in hover to be more readable if it's a date object
-            # If it's already string, this won't apply. If it's datetime, it's fine.
-            # hover_data_config[date_col_name] = True # Default format
-            hover_data_config[date_col_name] = ':%Y-%m-%d' # Example date format
-
-        fig = px.scatter(
-            correlation_data, x=x_col, y=y_data_col,
-            title=title, trendline="ols",
-            labels={x_col: x_label_final, y_data_col: y_label_final},
-            hover_name=date_col_name if date_col_name in correlation_data.columns else None, # Puts date in bold at top of hover
-            hover_data=hover_data_config if hover_data_config else None # More detailed hover control
-            # Or simpler: hover_data=[date_col_name] if date_col_name in correlation_data.columns else None
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        corr_coef = correlation_data[x_col].corr(correlation_data[y_data_col])
-        st.write(f"Pearson Correlation: **{corr_coef:.2f}** (Points: {len(correlation_data)})")
-    else:
-        st.info(f"Not enough overlapping data for '{title}'. Required: {x_col}, {y_data_col}. Found points: {len(correlation_data)}")
-    st.markdown("---")
-    
-# --- Curated "Key Insight" Correlation Plots ---
-if not daily_df.empty:
-    st.header("Key Health Correlations")
-
-    # 1. Average Stress vs. Resting HR (same day)
-    create_correlation_plot(daily_df, 
-                            x_col='averageStressLevel', y_col='restingHeartRate',
-                            title="Average Stress vs. Resting Heart Rate (Same Day)")
-
-    # 2. Sleep Duration vs. Next Day's Resting HR
-    create_correlation_plot(daily_df,
-                            x_col='sleepingHours', y_col='restingHeartRate',
-                            title="Sleep Duration vs. Next Day's Resting Heart Rate",
-                            y_col_is_next_day=True)
-                            
-    # 3. Sleep Duration vs. Next Day's Average Stress
-    create_correlation_plot(daily_df,
-                            x_col='sleepingHours', y_col='averageStressLevel',
-                            title="Sleep Duration vs. Next Day's Average Stress",
-                            y_col_is_next_day=True)
-
-    # 4. Active Kilocalories vs. Average Stress (same day)
-    create_correlation_plot(daily_df,
-                            x_col='activeKilocalories', y_col='averageStressLevel',
-                            title="Active Calories vs. Average Stress (Same Day)")
-                            
-    # 5. Total Steps vs. Sleeping Hours (same day night)
-    create_correlation_plot(daily_df,
-                            x_col='totalSteps', y_col='sleepingHours',
-                            title="Total Steps vs. Sleep Duration (Same Day's Night)")
-
-    # 6. Body Battery at Wake vs. Previous Night's Sleep
-    #    (This assumes 'bodyBatteryAtWakeTime' is the BB *after* the sleep reported on 'sleepingHours' for the same calendarDate)
-    create_correlation_plot(daily_df,
-                            x_col='sleepingHours', y_col='bodyBatteryAtWakeTime',
-                            title="Previous Night's Sleep vs. Morning Body Battery")
-
-    st.markdown("---") # Separator before the custom plotter
-# --- End of Curated Plots ---
-
-
-# --- Custom Metric Correlation Plotter (Your existing logic, slightly refactored) ---
-    st.header("Custom Metric Correlation Explorer")
-    
-    numeric_cols = [col for col in daily_df.columns if pd.api.types.is_numeric_dtype(daily_df[col])]
-    cols_to_exclude_from_select = [
-        'userProfileId', 'userDailySummaryId', 'wellnessStartTimeGmt', 'wellnessStartTimeLocal', 
-        'wellnessEndTimeGmt', 'wellnessEndTimeLocal', 'durationInMilliseconds', 'source', 
-        'bodyBatteryVersion', 'respirationAlgorithmVersion',
-        'highlyActiveMinutes', 'activeMinutes', 'sedentaryMinutes',
-        'stressDurationMinutes', 'restStressMinutes', 'activityStressMinutes',
-        'uncategorizedStressMinutes', 'totalStressMinutes',
-        'lowStressMinutes', 'mediumStressMinutes', 'highStressMinutes',
-        'measurableAwakeMinutes', 'measurableAsleepMinutes'
-    ] # Removed rule, uuid as they are not numeric
-    
-    selectable_cols = sorted([
-        col for col in numeric_cols 
-        if col not in cols_to_exclude_from_select 
-        and not str(col).endswith("Goal") # Ensure col is string for endswith
-        and daily_df[col].nunique(dropna=True) > 1 
-        and not daily_df[col].isnull().all()
-    ])
-    
-    if selectable_cols:
-        default_x_index = selectable_cols.index('averageStressLevel') if 'averageStressLevel' in selectable_cols else 0
-        col_x_custom = st.selectbox("Select Metric for X-axis:", selectable_cols, index=default_x_index, key="custom_corr_x")
-        
-        y_options_display_names_custom = []
-        y_options_actual_cols_custom = []
-        for col in selectable_cols:
-            y_options_display_names_custom.append(col.replace("_", " ").title())
-            y_options_actual_cols_custom.append(col)
-            if col != col_x_custom:
-                y_options_display_names_custom.append(f"{col.replace('_', ' ').title()} (Next Day's Value)")
-                y_options_actual_cols_custom.append(col)
-        
-        default_y_custom_raw = 'restingHeartRate' if 'restingHeartRate' in selectable_cols else selectable_cols[1] if len(selectable_cols) > 1 else selectable_cols[0]
-        default_y_custom_display_index = 0
-        try:
-            default_y_custom_display_index = y_options_display_names_custom.index(default_y_custom_raw.replace("_", " ").title())
-        except ValueError: pass
-
-        y_choice_label_custom = st.selectbox(
-            "Select Metric for Y-axis (Custom):", 
-            y_options_display_names_custom, 
-            index=default_y_custom_display_index,
-            key="custom_corr_y"
-        )
-        
-        selected_y_option_index_custom = y_options_display_names_custom.index(y_choice_label_custom)
-        col_y_original_custom = y_options_actual_cols_custom[selected_y_option_index_custom]
-        is_y_shifted_custom = "(Next Day's Value)" in y_choice_label_custom
-        
-        create_correlation_plot(
-            daily_df,
-            x_col=col_x_custom,
-            y_col=col_y_original_custom,
-            title=f"Custom Correlation: {col_x_custom.replace('_',' ').title()} vs. {y_choice_label_custom}",
-            x_label=col_x_custom.replace('_',' ').title(),
-            y_label=y_choice_label_custom, # create_correlation_plot handles next day label internally
-            y_col_is_next_day=is_y_shifted_custom
-        )
-    else:
-        st.info("No suitable numeric columns found for custom correlation plotting.")
-# --- End of Custom Plotter ---
-
-else:
-    st.info("Daily summary data is not loaded. Please ensure data is fetched.")
+heat_cols = st.multiselect("Metrics", numeric_cols,
+                           default=numeric_cols[: min(6, len(numeric_cols))])
+if len(heat_cols) >= 2:
+    mat = pd.DataFrame(np.nan, index=heat_cols, columns=heat_cols)
+    for i in heat_cols:
+        for j in heat_cols:
+            s = analysis_stats.corr_with_significance(udf[i], udf[j], method=method)
+            # blank non-significant off-diagonal cells
+            if i == j:
+                mat.loc[i, j] = 1.0
+            elif not s["too_few"] and pd.notna(s["p"]) and s["p"] < analysis_stats.DEFAULT_ALPHA:
+                mat.loc[i, j] = s["r"]
+    heat = px.imshow(mat, text_auto=".2f", zmin=-1, zmax=1,
+                     color_continuous_scale="RdBu", aspect="auto")
+    st.plotly_chart(heat, use_container_width=True)
+    st.caption("Blank cells = not significant at α=0.05 or too few points.")
