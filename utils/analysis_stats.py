@@ -48,3 +48,27 @@ def corr_with_significance(x, y, method="pearson"):
             out["ci_low"] = float(r)
             out["ci_high"] = float(r)
     return out
+
+
+def lagged_correlation(df, x_col, y_col, lags=range(0, 8),
+                       method="pearson", alpha=DEFAULT_ALPHA, min_n=MIN_N):
+    """Correlate driver x_col against outcome y_col across a range of day lags.
+
+    Lag k aligns driver at day t with outcome at day t+k (y shifted by -k).
+    """
+    x = df[x_col]
+    rows = []
+    for k in lags:
+        y_shift = df[y_col].shift(-k)
+        s = corr_with_significance(x, y_shift, method=method)
+        significant = (
+            not s["too_few"]
+            and pd.notna(s["p"])
+            and s["p"] < alpha
+            and s["n"] >= min_n
+        )
+        rows.append({"lag": k, "r": s["r"], "p": s["p"], "n": s["n"],
+                     "ci_low": s["ci_low"], "ci_high": s["ci_high"],
+                     "significant": significant})
+    return pd.DataFrame(rows, columns=["lag", "r", "p", "n",
+                                       "ci_low", "ci_high", "significant"])

@@ -52,3 +52,24 @@ def test_n3_returns_nan_ci_by_design():
     assert not np.isnan(res["r"])  # r is valid
     assert np.isnan(res["ci_low"])  # but CI bounds remain NaN
     assert np.isnan(res["ci_high"])
+
+
+def test_lagged_correlation_finds_offset_peak():
+    rng = np.random.default_rng(0)
+    x = pd.Series(rng.normal(size=60))
+    # outcome equals the driver from 3 days earlier: y[t] = x[t-3]
+    y = x.shift(3)
+    df = pd.DataFrame({"driver": x, "outcome": y})
+    res = a.lagged_correlation(df, "driver", "outcome", lags=range(0, 8))
+    assert list(res["lag"]) == list(range(0, 8))
+    peak_lag = int(res.loc[res["r"].abs().idxmax(), "lag"])
+    assert peak_lag == 3
+    assert bool(res.loc[res["lag"] == 3, "significant"].iloc[0]) is True
+
+
+def test_lagged_correlation_marks_noise_not_significant():
+    rng = np.random.default_rng(1)
+    df = pd.DataFrame({"a": rng.normal(size=40), "b": rng.normal(size=40)})
+    res = a.lagged_correlation(df, "a", "b", lags=range(0, 4))
+    # independent noise: at least the lag-0 relationship should be non-significant
+    assert bool(res.loc[res["lag"] == 0, "significant"].iloc[0]) is False
