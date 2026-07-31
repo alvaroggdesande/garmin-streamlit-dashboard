@@ -17,28 +17,36 @@ logger = logging.getLogger(__name__)
 DATA_DIR = "data" # Ensure this directory exists
 
 # --- Authentication & Client Management ---
-@st.cache_resource(ttl=3600) # Cache the client object for 1 hour
-def login_to_garmin(username, password):
-    """
-    Logs into Garmin Connect and returns a Garmin client object.
-    Caches the client object to avoid re-login on every script run.
-    """
-    try:
-        # For testing, you might need to provide a full path to a token store
-        # or handle it more robustly if deploying.
-        # For local dev, garminconnect might create a .garminconnect file
-        client = Garmin(username, password)
-        client.login()
-        logger.info(f"Successfully logged in as {username}")
+def classify_login_error(exc):
+    """Classify a login exception as 'rate_limited', 'auth', or 'other' (pure; no I/O)."""
+    msg = str(exc).lower()
+    if isinstance(exc, GarminConnectTooManyRequestsError) or \
+       "429" in msg or "too many requests" in msg or "max retries exceeded" in msg:
+        return "rate_limited"
+    if isinstance(exc, GarminConnectAuthenticationError) or \
+       "401" in msg or "unauthorized" in msg or "invalid" in msg:
+        return "auth"
+    return "other"
+
+def _do_login(username=None, password=None, token_blob=None, garmin_factory=Garmin):
+    """Token-first Garmin login. Injectable factory for testing. Raises on bad input."""
+    if token_blob:
+        client = garmin_factory()
+        client.login(token_blob)      # garth.loads resume — no SSO handshake
+        logger.info("Logged in to Garmin via saved token.")
         return client
-    except (GarminConnectConnectionError, GarminConnectTooManyRequestsError, GarminConnectAuthenticationError) as e:
-        logger.error(f"Garmin login failed for {username}: {e}")
-        st.error(f"Login Failed: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during Garmin login: {e}")
-        st.error(f"An unexpected error occurred: {e}")
-        return None
+    if username and password:
+        client = garmin_factory(username, password)
+        client.login()                # full SSO (throttled path)
+        logger.info(f"Logged in to Garmin as {username} via credentials.")
+        return client
+    raise ValueError("login requires either token_blob or username+password")
+
+
+@st.cache_resource(ttl=3600)
+def login_to_garmin(username=None, password=None, token_blob=None):
+    """Cached Garmin client. Raises on failure so failures are not cached for the TTL."""
+    return _do_login(username=username, password=password, token_blob=token_blob)
 
 # --- Data Fetching & Caching ---
 def get_user_data_path(username, data_type, start_date_str, end_date_str):
