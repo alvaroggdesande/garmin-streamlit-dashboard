@@ -103,3 +103,22 @@ def test_aggregate_activities_daily_empty():
         "mean_avg_hr", "aerobic_efficiency", "total_aerobic_te", "n_activities", "n_runs",
     ]
     assert out.empty
+
+
+def test_readiness_inverts_rhr_and_flags_bad_day():
+    dates = pd.date_range("2026-01-01", periods=12, freq="D").date
+    rhr = [50] * 11 + [70]          # last day: RHR spikes -> readiness should drop
+    sleep = [8.0] * 12
+    df = pd.DataFrame({"date": dates, "restingHeartRate": rhr, "sleepingHours": sleep})
+    out = a.readiness_score(df, baseline_window=7)
+    assert "readiness" in out.columns
+    assert out["readiness"].iloc[-1] < 0        # high RHR = worse readiness
+    assert out["readiness_n_components"].iloc[-1] >= 1
+
+
+def test_readiness_skips_missing_components():
+    dates = pd.date_range("2026-01-01", periods=10, freq="D").date
+    df = pd.DataFrame({"date": dates, "sleepingHours": [6, 7, 8, 7, 6, 9, 8, 7, 6, 8]})
+    out = a.readiness_score(df, baseline_window=5)
+    # only sleep present -> at most 1 component, never errors on absent columns
+    assert out["readiness_n_components"].max() <= 1

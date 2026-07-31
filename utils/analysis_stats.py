@@ -105,3 +105,43 @@ def aggregate_activities_daily(activities_df):
         out["mean_avg_hr"] > 0, speed_kmh / out["mean_avg_hr"], np.nan
     )
     return out[_ACTIVITY_DAILY_COLS]
+
+
+# component column -> sign (+1 higher is better, -1 higher is worse)
+COMPONENT_SPECS = {
+    "restingHeartRate": -1,
+    "sleepingHours": +1,
+    "hrv_nightly_avg": +1,
+    "bodyBatteryAtWakeTime": +1,
+    "averageStressLevel_prev": -1,  # prior-day overall stress
+}
+
+
+def _trailing_z(series, window):
+    """z-score against the trailing window that EXCLUDES the current day."""
+    min_p = max(3, window // 4)
+    base_mean = series.shift(1).rolling(window, min_periods=min_p).mean()
+    base_std = series.shift(1).rolling(window, min_periods=min_p).std()
+    return (series - base_mean) / base_std
+
+
+def readiness_score(daily_df, baseline_window=28):
+    """Transparent morning-readiness composite from available recovery signals."""
+    df = daily_df.copy().sort_values("date").reset_index(drop=True)
+    if "averageStressLevel" in df.columns:
+        df["averageStressLevel_prev"] = df["averageStressLevel"].shift(1)
+
+    comp_cols = []
+    for col, sign in COMPONENT_SPECS.items():
+        if col in df.columns and df[col].notna().sum() >= 3:
+            zc = f"z_{col}"
+            df[zc] = _trailing_z(df[col], baseline_window) * sign
+            comp_cols.append(zc)
+
+    if comp_cols:
+        df["readiness"] = df[comp_cols].mean(axis=1, skipna=True)
+        df["readiness_n_components"] = df[comp_cols].notna().sum(axis=1)
+    else:
+        df["readiness"] = np.nan
+        df["readiness_n_components"] = 0
+    return df
