@@ -36,3 +36,19 @@ def test_spearman_handles_monotonic_nonlinear():
     y = pd.Series([1.0, 4.0, 9.0, 16.0, 25.0])  # monotonic, non-linear
     res = a.corr_with_significance(x, y, method="spearman")
     assert res["r"] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_n3_returns_nan_ci_by_design():
+    """At n=3 (minimum valid sample), Fisher-z CI stays NaN because SE = 1/sqrt(n-3) is undefined.
+
+    This documents the contract: too_few=False, r is computed and valid, but CI bounds
+    remain NaN as intended (callers treat NaN CI as "not shown").
+    """
+    x = pd.Series([1.0, 2.0, 3.0])
+    y = pd.Series([2.0, 4.0, 6.0])
+    res = a.corr_with_significance(x, y, method="pearson")
+    assert res["n"] == 3
+    assert res["too_few"] is False
+    assert not np.isnan(res["r"])  # r is valid
+    assert np.isnan(res["ci_low"])  # but CI bounds remain NaN
+    assert np.isnan(res["ci_high"])

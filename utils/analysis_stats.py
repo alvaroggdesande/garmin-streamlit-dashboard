@@ -35,6 +35,8 @@ def corr_with_significance(x, y, method="pearson"):
     out["r"], out["p"] = float(r), float(p)
 
     # Fisher z-transform CI (approximate for spearman; needs n > 3).
+    # At n=3 exactly, the standard error SE = 1/sqrt(n-3) is undefined,
+    # so ci_low/ci_high remain NaN by design and callers treat NaN CI as "not shown".
     if n > 3:
         if abs(r) < 1.0:
             z = np.arctanh(r)
