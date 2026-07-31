@@ -145,3 +145,31 @@ def readiness_score(daily_df, baseline_window=28):
         df["readiness"] = np.nan
         df["readiness_n_components"] = 0
     return df
+
+
+def _normalize_date_frame(df):
+    if df is None or df.empty:
+        return None
+    d = df.copy()
+    if "date" not in d.columns and "calendarDate" in d.columns:
+        d = d.rename(columns={"calendarDate": "date"})
+    if "date" not in d.columns:
+        return None
+    d["date"] = pd.to_datetime(d["date"]).dt.date
+    return d
+
+
+def build_unified_daily_frame(daily_df=None, hrv_df=None, sleep_df=None,
+                              activities_daily_df=None):
+    """Outer-join daily summary, HRV, sleep and daily activity frames on date."""
+    base = None
+    for df in (daily_df, hrv_df, sleep_df, activities_daily_df):
+        norm = _normalize_date_frame(df)
+        if norm is None:
+            continue
+        base = norm if base is None else pd.merge(
+            base, norm, on="date", how="outer", suffixes=("", "_dup")
+        )
+    if base is None:
+        return pd.DataFrame(columns=["date"])
+    return base.sort_values("date").reset_index(drop=True)

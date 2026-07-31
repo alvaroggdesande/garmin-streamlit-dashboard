@@ -122,3 +122,21 @@ def test_readiness_skips_missing_components():
     out = a.readiness_score(df, baseline_window=5)
     # only sleep present -> at most 1 component, never errors on absent columns
     assert out["readiness_n_components"].max() <= 1
+
+
+def test_build_unified_daily_frame_outer_joins_on_date():
+    daily = pd.DataFrame({"calendarDate": ["2026-01-01", "2026-01-02"],
+                          "restingHeartRate": [50, 52]})
+    sleep = pd.DataFrame({"date": ["2026-01-02", "2026-01-03"],
+                          "sleepingHours": [7.5, 8.0]})
+    out = a.build_unified_daily_frame(daily_df=daily, sleep_df=sleep)
+    assert "date" in out.columns
+    assert "calendarDate" not in out.columns
+    assert len(out) == 3  # union of the two date sets
+    assert list(out["date"]) == sorted(out["date"])
+
+
+def test_build_unified_daily_frame_all_empty():
+    out = a.build_unified_daily_frame()
+    assert list(out.columns) == ["date"]
+    assert out.empty
