@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 DATA_DIR = "data" # Ensure this directory exists
 
 # --- Authentication & Client Management ---
+def classify_login_error(exc):
+    """Classify a login exception as 'rate_limited', 'auth', or 'other' (pure; no I/O)."""
+    msg = str(exc).lower()
+    if isinstance(exc, GarminConnectTooManyRequestsError) or \
+       "429" in msg or "too many requests" in msg or "max retries exceeded" in msg:
+        return "rate_limited"
+    if isinstance(exc, GarminConnectAuthenticationError) or \
+       "401" in msg or "unauthorized" in msg or "invalid" in msg:
+        return "auth"
+    return "other"
+
 @st.cache_resource(ttl=3600) # Cache the client object for 1 hour
 def login_to_garmin(username, password):
     """
