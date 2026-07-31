@@ -89,6 +89,11 @@ if not perf_options:
 
 perf = st.selectbox("Performance metric", perf_options)
 st.subheader(f"Readiness vs {perf} (same day)")
+if perf == "mean_pace_min_per_km":
+    st.caption(
+        "Lower pace = faster. A negative correlation here means higher readiness "
+        "is associated with faster runs (an improvement)."
+    )
 pair = scored[["date", "readiness", perf]].dropna()
 if len(pair) >= 2:
     fig = px.scatter(pair, x="readiness", y=perf, trendline="ols", hover_data=["date"])
