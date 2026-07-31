@@ -108,7 +108,9 @@ def test_aggregate_activities_daily_empty():
 def test_readiness_inverts_rhr_and_flags_bad_day():
     dates = pd.date_range("2026-01-01", periods=12, freq="D").date
     rhr = [50] * 11 + [70]          # last day: RHR spikes -> readiness should drop
-    sleep = [8.0] * 12
+    # Gently varying sleep ensures the sleep z-score is non-NaN (non-constant baseline)
+    # and genuinely exercises both components.
+    sleep = [7.5, 8.0, 8.5, 7.8, 8.2, 7.6, 8.3, 7.9, 8.1, 7.7, 8.4, 8.0]
     df = pd.DataFrame({"date": dates, "restingHeartRate": rhr, "sleepingHours": sleep})
     out = a.readiness_score(df, baseline_window=7)
     assert "readiness" in out.columns

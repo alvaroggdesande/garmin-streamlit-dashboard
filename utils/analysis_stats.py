@@ -122,6 +122,7 @@ def _trailing_z(series, window):
     min_p = max(3, window // 4)
     base_mean = series.shift(1).rolling(window, min_periods=min_p).mean()
     base_std = series.shift(1).rolling(window, min_periods=min_p).std()
+    base_std = base_std.replace(0, np.nan)  # constant baseline -> NaN (not ±inf)
     return (series - base_mean) / base_std
 
 
