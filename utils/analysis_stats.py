@@ -72,3 +72,36 @@ def lagged_correlation(df, x_col, y_col, lags=range(0, 8),
                      "significant": significant})
     return pd.DataFrame(rows, columns=["lag", "r", "p", "n",
                                        "ci_low", "ci_high", "significant"])
+
+
+_ACTIVITY_DAILY_COLS = [
+    "date", "total_duration_min", "total_distance_km", "mean_pace_min_per_km",
+    "mean_avg_hr", "aerobic_efficiency", "total_aerobic_te", "n_activities", "n_runs",
+]
+
+
+def aggregate_activities_daily(activities_df):
+    """Collapse multiple activities per day into one row of daily training metrics."""
+    if activities_df is None or activities_df.empty or "date" not in activities_df.columns:
+        return pd.DataFrame(columns=_ACTIVITY_DAILY_COLS)
+
+    df = activities_df.copy()
+    type_key = df["activityType_key"] if "activityType_key" in df.columns else pd.Series(index=df.index, dtype=object)
+    df["_is_run"] = type_key.eq("running")
+
+    grouped = df.groupby("date")
+    out = grouped.agg(
+        total_duration_min=("duration_minutes", "sum"),
+        total_distance_km=("distance_km", "sum"),
+        mean_pace_min_per_km=("pace_min_per_km", "mean"),
+        mean_avg_hr=("avgHR", "mean"),
+        total_aerobic_te=("aerobicTE", "sum"),
+        n_activities=("date", "size"),
+        n_runs=("_is_run", "sum"),
+    ).reset_index()
+
+    speed_kmh = out["total_distance_km"] / (out["total_duration_min"] / 60.0)
+    out["aerobic_efficiency"] = np.where(
+        out["mean_avg_hr"] > 0, speed_kmh / out["mean_avg_hr"], np.nan
+    )
+    return out[_ACTIVITY_DAILY_COLS]

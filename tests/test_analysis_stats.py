@@ -73,3 +73,33 @@ def test_lagged_correlation_marks_noise_not_significant():
     res = a.lagged_correlation(df, "a", "b", lags=range(0, 4))
     # independent noise: at least the lag-0 relationship should be non-significant
     assert bool(res.loc[res["lag"] == 0, "significant"].iloc[0]) is False
+
+
+def test_aggregate_activities_daily_sums_and_means():
+    acts = pd.DataFrame({
+        "date": ["2026-01-01", "2026-01-01", "2026-01-02"],
+        "duration_minutes": [30.0, 60.0, 45.0],
+        "distance_km": [5.0, 10.0, 9.0],
+        "pace_min_per_km": [6.0, 6.0, 5.0],
+        "avgHR": [140.0, 150.0, 160.0],
+        "aerobicTE": [2.0, 3.0, 4.0],
+        "activityType_key": ["running", "cycling", "running"],
+    })
+    out = a.aggregate_activities_daily(acts)
+    day1 = out[out["date"] == "2026-01-01"].iloc[0]
+    assert day1["total_duration_min"] == 90.0
+    assert day1["total_distance_km"] == 15.0
+    assert day1["n_activities"] == 2
+    assert day1["n_runs"] == 1
+    assert day1["mean_avg_hr"] == pytest.approx(145.0)
+    # speed = 15 km / 1.5 h = 10 km/h; efficiency = 10 / 145
+    assert day1["aerobic_efficiency"] == pytest.approx(10.0 / 145.0, rel=1e-6)
+
+
+def test_aggregate_activities_daily_empty():
+    out = a.aggregate_activities_daily(pd.DataFrame())
+    assert list(out.columns) == [
+        "date", "total_duration_min", "total_distance_km", "mean_pace_min_per_km",
+        "mean_avg_hr", "aerobic_efficiency", "total_aerobic_te", "n_activities", "n_runs",
+    ]
+    assert out.empty
