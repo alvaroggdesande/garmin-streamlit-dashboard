@@ -6,6 +6,7 @@ unit-testable with small in-memory DataFrames (mirrors utils/analysis_stats.py).
 import numpy as np
 import pandas as pd
 from scipy import stats
+from datetime import timedelta
 
 EASY_Z2_FRACTION = 0.60
 MIN_WINDOW_N = 4
@@ -86,3 +87,41 @@ def pace_at_reference_hr(runs_df, ref_hr=REF_HR_DEFAULT, min_n=5, min_hr_spread=
         "reason": "ok",
     })
     return result
+
+
+def improvement_verdict(easy_ef_df, as_of, recent_weeks=6, min_n=MIN_WINDOW_N,
+                        flat_band_pct=1.5):
+    """Compare recent vs prior EF windows into a plain-language verdict."""
+    out = {"direction": "flat", "pct_change": None, "n_recent": 0, "n_prior": 0,
+           "confident": False, "p_value": None, "muted": True, "reason": ""}
+
+    df = easy_ef_df[["date", "ef"]].copy()
+    df["ef"] = pd.to_numeric(df["ef"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df = df.dropna(subset=["ef"])
+
+    recent_start = as_of - timedelta(weeks=recent_weeks)
+    prior_start = as_of - timedelta(weeks=2 * recent_weeks)
+    recent = df[(df["date"] > recent_start) & (df["date"] <= as_of)]
+    prior = df[(df["date"] > prior_start) & (df["date"] <= recent_start)]
+    out["n_recent"], out["n_prior"] = int(len(recent)), int(len(prior))
+
+    if len(recent) < min_n or len(prior) < min_n:
+        out["reason"] = f"need >= {min_n} easy runs in each 6-week window"
+        return out
+
+    med_recent = float(recent["ef"].median())
+    med_prior = float(prior["ef"].median())
+    pct = (med_recent - med_prior) / med_prior * 100 if med_prior else 0.0
+    _, p = stats.mannwhitneyu(recent["ef"], prior["ef"], alternative="two-sided")
+
+    direction = "up" if pct >= flat_band_pct else "down" if pct <= -flat_band_pct else "flat"
+    out.update({
+        "direction": direction,
+        "pct_change": float(pct),
+        "confident": bool(p < 0.05),
+        "p_value": float(p),
+        "muted": False,
+        "reason": "ok",
+    })
+    return out

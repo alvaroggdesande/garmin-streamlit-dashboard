@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from datetime import date, timedelta
 
 from utils import efficiency_stats as e
 
@@ -95,3 +96,43 @@ def test_pace_at_reference_hr_insufficient_spread():
     res = e.pace_at_reference_hr(df, ref_hr=145)
     assert res["ok"] is False
     assert "spread" in res["reason"].lower()
+
+
+def _runs(as_of, offsets_days, efs):
+    return pd.DataFrame({
+        "date": [pd.Timestamp(as_of - timedelta(days=d)) for d in offsets_days],
+        "ef": efs,
+    })
+
+
+def test_improvement_verdict_up_and_confident():
+    as_of = date(2026, 3, 1)
+    # prior window (43-84 days ago) low EF; recent window (0-42 days) high EF
+    prior = _runs(as_of, [50, 55, 60, 65, 70], [1.00, 1.02, 0.98, 1.01, 0.99])
+    recent = _runs(as_of, [3, 8, 15, 22, 30], [1.20, 1.22, 1.18, 1.21, 1.19])
+    df = pd.concat([prior, recent], ignore_index=True)
+    v = e.improvement_verdict(df, as_of=as_of, recent_weeks=6)
+    assert v["muted"] is False
+    assert v["n_recent"] == 5 and v["n_prior"] == 5
+    assert v["direction"] == "up"
+    assert v["pct_change"] > 15
+    assert v["confident"] is True
+
+
+def test_improvement_verdict_muted_when_thin():
+    as_of = date(2026, 3, 1)
+    prior = _runs(as_of, [50, 60], [1.0, 1.0])       # only 2 runs
+    recent = _runs(as_of, [3, 8, 15], [1.2, 1.2, 1.2])
+    df = pd.concat([prior, recent], ignore_index=True)
+    v = e.improvement_verdict(df, as_of=as_of, recent_weeks=6)
+    assert v["muted"] is True
+    assert v["confident"] is False
+
+
+def test_improvement_verdict_flat_direction():
+    as_of = date(2026, 3, 1)
+    prior = _runs(as_of, [50, 55, 60, 65], [1.00, 1.01, 0.99, 1.00])
+    recent = _runs(as_of, [3, 8, 15, 22], [1.005, 1.00, 1.01, 0.995])
+    df = pd.concat([prior, recent], ignore_index=True)
+    v = e.improvement_verdict(df, as_of=as_of, recent_weeks=6)
+    assert v["direction"] == "flat"
