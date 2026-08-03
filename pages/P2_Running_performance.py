@@ -18,75 +18,10 @@ from utils.data_processing import *
 st.set_page_config(layout="wide", page_title="Running Performance")
 st.title("🏃 Running Performance Analysis")
 
-# --- process_activities_df (ensure it extracts 'activityType_key' and handles HR zones) ---
-# This should be in data_processing.py. For completeness here:
-def local_process_activities_df(activities_df_raw):
-    if activities_df_raw.empty:
-        return pd.DataFrame()
-    
-    df = activities_df_raw.copy()
-    # Extract activityType_key
-    if 'activityType' in df.columns:
-        df['activityType_key'] = df['activityType'].apply(
-            lambda x: x.get('typeKey') if isinstance(x, dict) else x if isinstance(x, str) else None
-        )
-    # Date and Time processing
-    df['startTimeGMT_dt'] = pd.to_datetime(df['startTimeGMT'], errors='coerce') # Keep original GMT if needed
-    df['date'] = pd.to_datetime(df['startTimeLocal'], errors='coerce').dt.date # Use startTimeLocal for 'date'
-
-    # Duration
-    df['duration_seconds'] = pd.to_numeric(df['duration'], errors='coerce')
-    df['duration_minutes'] = df['duration_seconds'] / 60
-
-    # Distance
-    df['distance_meters'] = pd.to_numeric(df['distance'], errors='coerce')
-    df['distance_km'] = df['distance_meters'] / 1000
-
-    # Pace (min/km)
-    mask_pace = (df['distance_km'] > 0) & (df['duration_minutes'] > 0)
-    df['pace_min_per_km'] = np.nan
-    df.loc[mask_pace, 'pace_min_per_km'] = df.loc[mask_pace, 'duration_minutes'] / df.loc[mask_pace, 'distance_km']
-
-    # HR
-    df['avgHR'] = pd.to_numeric(df['averageHR'], errors='coerce')
-    df['maxHR'] = pd.to_numeric(df['maxHR'], errors='coerce')
-
-    # Cadence (ensure columns exist, often specific to running)
-    if 'averageRunningCadenceInStepsPerMinute' in df.columns:
-        df['avgCadence'] = pd.to_numeric(df['averageRunningCadenceInStepsPerMinute'], errors='coerce') * 2 # Steps per leg to total steps
-    if 'maxRunningCadenceInStepsPerMinute' in df.columns:
-        df['maxCadence'] = pd.to_numeric(df['maxRunningCadenceInStepsPerMinute'], errors='coerce') * 2
-
-    # VO2Max
-    if 'vO2MaxValue' in df.columns:
-        df['vo2MaxValue_activity'] = pd.to_numeric(df['vO2MaxValue'], errors='coerce')
-    
-    # TE
-    df['aerobicTE'] = pd.to_numeric(df['aerobicTrainingEffect'], errors='coerce')
-    df['anaerobicTE'] = pd.to_numeric(df['anaerobicTrainingEffect'], errors='coerce')
-
-    # HR Zones (example, adjust based on your actual hrTimeInZone_X column names)
-    for i in range(1, 6):
-        col_name = f'hrTimeInZone_{i}' # Check exact column name from your activities_df sample
-        # Sometimes it's hrTimeInZone[X] or timeInHeartRateZoneDTOs. Use your sample to confirm.
-        # For now, assuming direct column names like your sample for daily_summaries,
-        # but activity data often has them as hrTimeInZone_X.
-        # Your sample data shows hrTimeInZone_1, hrTimeInZone_2 etc. as direct columns
-        if col_name in df.columns:
-            df[f'time_in_zone{i}_seconds'] = pd.to_numeric(df[col_name], errors='coerce').fillna(0)
-            df[f'time_in_zone{i}_minutes'] = df[f'time_in_zone{i}_seconds'] / 60
-        else: # If not found, create empty to avoid errors later
-            df[f'time_in_zone{i}_seconds'] = 0.0
-            df[f'time_in_zone{i}_minutes'] = 0.0
-            
-    df = df.sort_values(by='date').reset_index(drop=True)
-    return df
-# ------------------------------------------------------------------------------
-
 @st.cache_data(ttl=300)
 def load_activity_data(_client, _username, _start_date, _end_date, _force_refresh):
     activities_raw = garmin_utils.get_activities(_client, _username, _start_date, _end_date, _force_refresh)
-    activities_processed = local_process_activities_df(activities_raw) # Use the local or imported processing function
+    activities_processed = data_processing.process_running_activities_df(activities_raw)
     return activities_processed
 
 if not st.session_state.get('logged_in', False):
@@ -112,53 +47,6 @@ if not all_activities_df.empty and 'activityType_key' in all_activities_df.colum
 
     if not running_df.empty:
         st.header("Running Activity Trends")
-        
-        # --- Key Running Metrics Over Time ---
-        metrics_to_plot = {
-            'pace_min_per_km': "Average Pace (min/km)",
-            'avgHR': "Average Heart Rate (bpm)",
-            'distance_km': "Distance (km)",
-            'vo2MaxValue_activity': "VO2 Max (from Activity)",
-            'avgCadence': "Average Cadence (spm)"
-        }
-        
-        # Allow user to select metrics for the trend plot
-        selected_metrics = st.multiselect(
-            "Select metrics to plot over time:",
-            options=list(metrics_to_plot.keys()),
-            default=[k for k,v in metrics_to_plot.items() if k in ['pace_min_per_km', 'avgHR', 'distance_km']] # Sensible defaults
-        )
-
-        if selected_metrics:
-            fig_trends = go.Figure()
-            for i, metric_col in enumerate(selected_metrics):
-                if metric_col in running_df.columns and not running_df[metric_col].isnull().all():
-                    use_secondary_y = i > 0 and metric_col != 'distance_km' # Example: put HR/Cadence/VO2 on secondary if Pace/Dist is primary
-                    
-                    fig_trends.add_trace(go.Scatter(
-                        x=running_df['date'],
-                        y=running_df[metric_col],
-                        name=metrics_to_plot.get(metric_col, metric_col),
-                        mode='lines+markers',
-                        yaxis=f'y{i+1 if use_secondary_y and i<2 else 1}' # Limit to 2 y-axes for clarity
-                    ))
-            
-            fig_trends.update_layout(
-                title="Selected Running Metrics Over Time",
-                xaxis_title="Date",
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            # Configure Y-axes (basic example, can be made more dynamic)
-            fig_trends.update_layout(yaxis_title=metrics_to_plot.get(selected_metrics[0],selected_metrics[0]))
-            if len(selected_metrics) > 1 and any(m != 'distance_km' for m in selected_metrics[1:]):
-                 fig_trends.update_layout(yaxis2=dict(title="Secondary Metric", overlaying='y', side='right', showgrid=False))
-            
-            if 'pace_min_per_km' in selected_metrics: # Invert pace axis if selected
-                fig_trends.update_yaxes(autorange="reversed", selector=dict(title_text=metrics_to_plot['pace_min_per_km']))
-
-            st.plotly_chart(fig_trends, use_container_width=True)
-        st.markdown("---")
 
         # --- Aggregated Time in HR Zones (NEW)---
         st.subheader("Time in HR Zones Distribution Over Time (Running)")
@@ -299,64 +187,6 @@ if not all_activities_df.empty and 'activityType_key' in all_activities_df.colum
             st.info("No running data available to calculate pace per zone trends.")
         st.markdown("---")
 
-
-
-        # --- 2. Aerobic Efficiency (Pace for Easy Runs) ---
-        st.subheader("Aerobic Efficiency (Easy Runs - Zone 2)")
-        st.caption("This tracks your pace during easy (Zone 2) runs at a given heart rate. Improvement means faster pace at the same HR, or same pace at a lower HR.")
-
-        # Identify Easy Runs (Zone 2) - This requires HR zone data per activity
-        # We need to ensure 'time_in_zone2_minutes' and 'duration_minutes' are correctly processed
-        # And a reasonable definition for a "Zone 2 run"
-
-        # For identify_zone2_runs, we need max_hr or rely on time in zones.
-        # Let's assume we primarily rely on a significant portion of time in Zone 2.
-        # This logic should ideally be in data_processing.py
-        def identify_easy_runs(df, z2_min_percentage=0.60):
-            if 'time_in_zone2_minutes' not in df.columns or 'duration_minutes' not in df.columns:
-                return pd.DataFrame() # Not enough info
-            # Ensure duration is not zero to avoid division by zero
-            df_filtered = df[df['duration_minutes'] > 0].copy()
-            df_filtered['z2_percentage'] = (df_filtered['time_in_zone2_minutes'] / df_filtered['duration_minutes'])
-            easy_runs = df_filtered[df_filtered['z2_percentage'] >= z2_min_percentage]
-            return easy_runs
-
-        easy_runs_df = identify_easy_runs(running_df)
-
-        if not easy_runs_df.empty and 'pace_min_per_km' in easy_runs_df.columns and 'avgHR' in easy_runs_df.columns:
-            fig_aerobic_eff = go.Figure()
-            fig_aerobic_eff.add_trace(go.Scatter(
-                x=easy_runs_df['date'],
-                y=easy_runs_df['pace_min_per_km'],
-                name='Easy Run Pace (min/km)',
-                mode='lines+markers',
-                yaxis='y1'
-            ))
-            fig_aerobic_eff.add_trace(go.Scatter(
-                x=easy_runs_df['date'],
-                y=easy_runs_df['avgHR'],
-                name='Easy Run Avg HR (bpm)',
-                mode='lines+markers',
-                yaxis='y2'
-            ))
-            fig_aerobic_eff.update_layout(
-                title="Easy Run Pace and Average HR Over Time",
-                xaxis_title="Date",
-                yaxis=dict(title="Pace (min/km)", autorange="reversed"),
-                yaxis2=dict(title="Average HR (bpm)", overlaying='y', side='right', showgrid=False),
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            st.plotly_chart(fig_aerobic_eff, use_container_width=True)
-
-            # Aerobic Decoupling (Pa:HR ratio) - Advanced concept
-            # If you have access to average power for runs (e.g. Stryd) this is more accurate.
-            # Otherwise, can be approximated if you have consistent HR and Pace for first/second half of easy long runs.
-            # For now, we'll skip the direct plot of decoupling but note its importance.
-            st.info("Consider tracking Aerobic Decoupling (Pace:HR or Power:HR ratio drift) on long easy runs for a deeper endurance insight.")
-        else:
-            st.info("Not enough easy (Zone 2) runs identified or missing pace/HR data for Aerobic Efficiency plot. Ensure activities have HR zone data.")
-        st.markdown("---")
 
 
         # --- 3. Long Run Progression ---
