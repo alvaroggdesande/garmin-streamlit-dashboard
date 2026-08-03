@@ -65,3 +65,33 @@ def test_weekly_ef_trend_drops_nan_and_handles_empty():
     out = e.weekly_ef_trend(df)
     assert out.empty
     assert list(out.columns) == ["week_start", "ef_median", "n", "ef_q25", "ef_q75"]
+
+
+def test_pace_at_reference_hr_linear_fit():
+    # pace = 10 - 0.03*HR exactly => at HR=145 pace = 10 - 4.35 = 5.65
+    hr = np.array([130, 140, 150, 160, 170], dtype=float)
+    pace = 10 - 0.03 * hr
+    df = pd.DataFrame({"avgHR": hr, "pace_min_per_km": pace})
+    res = e.pace_at_reference_hr(df, ref_hr=145)
+    assert res["ok"] is True
+    assert res["n"] == 5
+    assert res["pace_at_ref"] == pytest.approx(5.65, abs=1e-6)
+    assert res["slope"] == pytest.approx(-0.03, abs=1e-6)
+
+
+def test_pace_at_reference_hr_too_few_runs():
+    df = pd.DataFrame({"avgHR": [140.0, 150.0], "pace_min_per_km": [5.5, 5.2]})
+    res = e.pace_at_reference_hr(df, ref_hr=145)
+    assert res["ok"] is False
+    assert res["pace_at_ref"] is None
+
+
+def test_pace_at_reference_hr_insufficient_spread():
+    # 6 runs but all within 3 bpm => cannot fit a trustworthy line
+    df = pd.DataFrame({
+        "avgHR": [144.0, 145.0, 145.0, 146.0, 146.0, 147.0],
+        "pace_min_per_km": [5.5, 5.4, 5.6, 5.5, 5.3, 5.4],
+    })
+    res = e.pace_at_reference_hr(df, ref_hr=145)
+    assert res["ok"] is False
+    assert "spread" in res["reason"].lower()

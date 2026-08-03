@@ -63,3 +63,26 @@ def weekly_ef_trend(ef_df):
         "ef_q75": grouped.quantile(0.75),
     }).reset_index().sort_values("week_start").reset_index(drop=True)
     return out[_WEEKLY_COLS]
+
+
+def pace_at_reference_hr(runs_df, ref_hr=REF_HR_DEFAULT, min_n=5, min_hr_spread=8):
+    """Predict pace (min/km) at a reference HR from a linear pace~HR fit."""
+    result = {"pace_at_ref": None, "slope": np.nan, "intercept": np.nan,
+              "n": 0, "ok": False, "reason": ""}
+    df = runs_df[["avgHR", "pace_min_per_km"]].apply(pd.to_numeric, errors="coerce").dropna()
+    result["n"] = int(len(df))
+    if len(df) < min_n:
+        result["reason"] = f"need at least {min_n} runs, have {len(df)}"
+        return result
+    if (df["avgHR"].max() - df["avgHR"].min()) < min_hr_spread:
+        result["reason"] = f"HR spread below {min_hr_spread} bpm — cannot fit a trustworthy line"
+        return result
+    fit = stats.linregress(df["avgHR"], df["pace_min_per_km"])
+    result.update({
+        "slope": float(fit.slope),
+        "intercept": float(fit.intercept),
+        "pace_at_ref": float(fit.intercept + fit.slope * ref_hr),
+        "ok": True,
+        "reason": "ok",
+    })
+    return result
