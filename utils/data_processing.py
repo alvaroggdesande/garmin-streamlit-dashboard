@@ -446,7 +446,7 @@ def calculate_pace_per_zone_trend(running_df, hr_zone_definitions, min_duration_
         return None # Or "Undefined"
 
     df['primary_zone_by_avg_hr'] = df['avgHR'].apply(lambda hr: get_primary_zone(hr, hr_zone_definitions))
-    
+
     # Filter out runs that couldn't be classified or have no pace
     classified_runs = df.dropna(subset=['primary_zone_by_avg_hr', 'pace_min_per_km', 'date'])
     if classified_runs.empty:
@@ -462,12 +462,64 @@ def calculate_pace_per_zone_trend(running_df, hr_zone_definitions, min_duration_
 
     # For plotting, it's often easier to have one trace per zone.
     # Let's prepare data for that. We might average pace weekly/monthly per zone.
-    
+
     # Example: Weekly average pace for each zone
     # This creates a multi-index (date, primary_zone_by_avg_hr)
     pace_trends = classified_runs.set_index('date').groupby([
-        pd.Grouper(freq='W-MON', label='left', closed='left'), 
+        pd.Grouper(freq='W-MON', label='left', closed='left'),
         'primary_zone_by_avg_hr'
     ])['pace_min_per_km'].mean().reset_index()
-    
+
     return pace_trends
+
+def process_running_activities_df(activities_df_raw):
+    """Process raw Garmin activities into per-run running metrics.
+
+    Shared by the Running Performance page and the Am-I-Improving page.
+    """
+    if activities_df_raw is None or activities_df_raw.empty:
+        return pd.DataFrame()
+
+    df = activities_df_raw.copy()
+    if 'activityType' in df.columns:
+        df['activityType_key'] = df['activityType'].apply(
+            lambda x: x.get('typeKey') if isinstance(x, dict) else x if isinstance(x, str) else None
+        )
+    df['startTimeGMT_dt'] = pd.to_datetime(df['startTimeGMT'], errors='coerce')
+    df['date'] = pd.to_datetime(df['startTimeLocal'], errors='coerce').dt.date
+
+    df['duration_seconds'] = pd.to_numeric(df['duration'], errors='coerce')
+    df['duration_minutes'] = df['duration_seconds'] / 60
+
+    df['distance_meters'] = pd.to_numeric(df['distance'], errors='coerce')
+    df['distance_km'] = df['distance_meters'] / 1000
+
+    mask_pace = (df['distance_km'] > 0) & (df['duration_minutes'] > 0)
+    df['pace_min_per_km'] = np.nan
+    df.loc[mask_pace, 'pace_min_per_km'] = df.loc[mask_pace, 'duration_minutes'] / df.loc[mask_pace, 'distance_km']
+
+    df['avgHR'] = pd.to_numeric(df['averageHR'], errors='coerce')
+    df['maxHR'] = pd.to_numeric(df['maxHR'], errors='coerce')
+
+    if 'averageRunningCadenceInStepsPerMinute' in df.columns:
+        df['avgCadence'] = pd.to_numeric(df['averageRunningCadenceInStepsPerMinute'], errors='coerce') * 2
+    if 'maxRunningCadenceInStepsPerMinute' in df.columns:
+        df['maxCadence'] = pd.to_numeric(df['maxRunningCadenceInStepsPerMinute'], errors='coerce') * 2
+
+    if 'vO2MaxValue' in df.columns:
+        df['vo2MaxValue_activity'] = pd.to_numeric(df['vO2MaxValue'], errors='coerce')
+
+    df['aerobicTE'] = pd.to_numeric(df['aerobicTrainingEffect'], errors='coerce')
+    df['anaerobicTE'] = pd.to_numeric(df['anaerobicTrainingEffect'], errors='coerce')
+
+    for i in range(1, 6):
+        col_name = f'hrTimeInZone_{i}'
+        if col_name in df.columns:
+            df[f'time_in_zone{i}_seconds'] = pd.to_numeric(df[col_name], errors='coerce').fillna(0)
+            df[f'time_in_zone{i}_minutes'] = df[f'time_in_zone{i}_seconds'] / 60
+        else:
+            df[f'time_in_zone{i}_seconds'] = 0.0
+            df[f'time_in_zone{i}_minutes'] = 0.0
+
+    df = df.sort_values(by='date').reset_index(drop=True)
+    return df
