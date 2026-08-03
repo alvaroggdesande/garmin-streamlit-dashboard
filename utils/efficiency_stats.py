@@ -41,3 +41,25 @@ def add_efficiency_columns(runs_df):
     else:
         df["is_easy"] = False
     return df
+
+
+_WEEKLY_COLS = ["week_start", "ef_median", "n", "ef_q25", "ef_q75"]
+
+
+def weekly_ef_trend(ef_df):
+    """Weekly (Mon-start) median EF with IQR band and run count."""
+    df = ef_df[["date", "ef"]].copy()
+    df["ef"] = pd.to_numeric(df["ef"], errors="coerce")
+    df = df.dropna(subset=["ef"])
+    if df.empty:
+        return pd.DataFrame(columns=_WEEKLY_COLS)
+    df["date"] = pd.to_datetime(df["date"])
+    df["week_start"] = df["date"].dt.to_period("W-SUN").dt.start_time  # Monday start
+    grouped = df.groupby("week_start")["ef"]
+    out = pd.DataFrame({
+        "ef_median": grouped.median(),
+        "n": grouped.size(),
+        "ef_q25": grouped.quantile(0.25),
+        "ef_q75": grouped.quantile(0.75),
+    }).reset_index().sort_values("week_start").reset_index(drop=True)
+    return out[_WEEKLY_COLS]

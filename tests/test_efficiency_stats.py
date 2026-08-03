@@ -40,3 +40,28 @@ def test_add_efficiency_columns_missing_zone_column_is_not_easy():
     })
     out = e.add_efficiency_columns(df)
     assert bool(out.loc[0, "is_easy"]) is False
+
+
+def test_weekly_ef_trend_medians_and_counts():
+    df = pd.DataFrame({
+        "date": pd.to_datetime([
+            "2026-01-05", "2026-01-07",   # week of Mon 2026-01-05
+            "2026-01-12",                  # week of Mon 2026-01-12
+        ]),
+        "ef": [1.0, 2.0, 3.0],
+    })
+    out = e.weekly_ef_trend(df)
+    assert list(out["week_start"]) == list(pd.to_datetime(["2026-01-05", "2026-01-12"]))
+    assert out.loc[0, "n"] == 2
+    assert out.loc[0, "ef_median"] == pytest.approx(1.5)
+    assert out.loc[0, "ef_q25"] == pytest.approx(1.25)
+    assert out.loc[0, "ef_q75"] == pytest.approx(1.75)
+    assert out.loc[1, "n"] == 1
+    assert out.loc[1, "ef_median"] == pytest.approx(3.0)
+
+
+def test_weekly_ef_trend_drops_nan_and_handles_empty():
+    df = pd.DataFrame({"date": pd.to_datetime(["2026-01-05"]), "ef": [np.nan]})
+    out = e.weekly_ef_trend(df)
+    assert out.empty
+    assert list(out.columns) == ["week_start", "ef_median", "n", "ef_q25", "ef_q75"]
